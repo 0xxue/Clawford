@@ -1,6 +1,25 @@
-# @nexus/ai-bot
+<p align="center">
+  <img src="img/bot-chat.png" width="300" />
+</p>
 
-3D AI Bot Engine for React applications. Embed an intelligent assistant with VRM avatar, voice dialogue, and tool system into any project.
+<h1 align="center">Clawford</h1>
+<p align="center">
+  <strong>3D AI Bot Engine for React</strong><br/>
+  Embed an intelligent assistant with VRM avatar, voice dialogue, and tool system into any project.
+</p>
+
+## Screenshots
+
+<table>
+  <tr>
+    <td><img src="img/chat-home.png" width="400" /><br/><sub>Bot floating with scene awareness</sub></td>
+    <td><img src="img/bot-chat.png" width="400" /><br/><sub>Chat panel with tool calls</sub></td>
+  </tr>
+  <tr>
+    <td><img src="img/dashboard.png" width="400" /><br/><sub>Bot narrating dashboard data</sub></td>
+    <td><img src="img/settings.png" width="400" /><br/><sub>Persona, voice, size config</sub></td>
+  </tr>
+</table>
 
 ## Features
 
