@@ -8,6 +8,11 @@
   Embed an intelligent assistant with VRM avatar, voice dialogue, and tool system into any project.
 </p>
 
+<p align="center">
+  <a href="https://demo-mu-jade.vercel.app/indexv2.html"><strong>Live Demo</strong></a> |
+  <a href="https://demo-mu-jade.vercel.app/">Demo (v1)</a>
+</p>
+
 ## Screenshots
 
 <table>
