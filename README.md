@@ -153,6 +153,19 @@ This package expects a backend with these endpoints:
 
 See [nexus-ai](https://github.com/0xxue/nexus-ai) for a complete backend implementation.
 
+## Demo
+
+The `demo/` folder contains standalone HTML demos showing the VRM bot in action:
+
+- `index.html` / `indexv2.html` -- Basic VRM model viewer
+- `*-with-bot.html` -- Pages with embedded bot
+- `*-no-bot.html` -- Same pages without bot (for comparison)
+- `model.vrm` -- Clawford 3D crab model
+
+Open any HTML file in a browser to see the bot. No build step needed.
+
+Online demo: [ai-qa-platform demo](https://github.com/0xxue/ai-qa-platform)
+
 ## License
 
 MIT
