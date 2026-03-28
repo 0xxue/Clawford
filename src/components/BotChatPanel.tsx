@@ -1,0 +1,280 @@
+/**
+ * Bot Chat Panel — Mini dialog that opens when clicking the bot.
+ *
+ * Features:
+ * - WebSocket-connected (real-time, bidirectional)
+ * - Shows bot messages with emotions
+ * - Tool call indicators
+ * - Input field for user messages
+ * - Minimizable/closable
+ */
+
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { onBotMessage, type BotMessage } from '../hooks/useBotWebSocket';
+import { useBotVoice } from '../hooks/useBotVoice';
+import { useBotStore, type BotChatMessage } from '../store';
+import { useBotConfig } from '../BotProvider';
+import { X, Send, Mic, MicOff, VolumeX } from 'lucide-react';
+
+type ChatMessage = BotChatMessage;
+
+interface Props {
+  open: boolean;
+  onClose: () => void;
+  onSend: (message: string) => void;
+  botPos: { x: number; y: number };
+  botSize: number;
+}
+
+export function BotChatPanel({ open, onClose, onSend, botPos, botSize }: Props) {
+  const config = useBotConfig();
+  const { chatMessages: messages, addChatMessage, setChatMessages: setMessages, botName, setBotName } = useBotStore();
+  const [input, setInput] = useState('');
+  const [thinking, setThinking] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const waitingForReply = useRef(false);
+
+  // Voice system
+  const handleVoiceMessage = useCallback((text: string) => {
+    addChatMessage({ id: `user-${Date.now()}`, role: 'user', content: text, timestamp: Date.now() });
+    waitingForReply.current = true;
+    onSend(text);
+  }, [onSend, addChatMessage]);
+
+  const voice = useBotVoice(handleVoiceMessage);
+  const lastBotMsg = useRef<string>('');
+  const historyLoaded = useRef(false);
+
+  // Load persisted messages from DB (only once, only if store is empty)
+  useEffect(() => {
+    if (historyLoaded.current || messages.length > 0) return;
+    historyLoaded.current = true;
+
+    const token = config.getToken();
+    fetch(`${config.apiBase}/messages?limit=20`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+      .then(r => r.json())
+      .then((data: any[]) => {
+        if (Array.isArray(data) && data.length > 0) {
+          const restored: ChatMessage[] = data.map(m => ({
+            id: `h-${m.id}`,
+            role: m.direction === 'user_to_bot' ? 'user' : 'bot',
+            content: m.content || '',
+            emotion: m.emotion,
+            tools: m.tool_calls,
+            timestamp: m.created_at ? new Date(m.created_at).getTime() : Date.now(),
+          }));
+          setMessages(restored);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Listen for WebSocket messages
+  useEffect(() => {
+    return onBotMessage((msg: BotMessage) => {
+      // Persona info
+      if (msg.type === 'connected' && (msg as any).persona) {
+        const p = (msg as any).persona;
+        useBotStore.getState().setBotName(p.name?.toUpperCase() || 'CLAWFORD');
+        if (useBotStore.getState().chatMessages.length === 0) {
+          useBotStore.getState().addChatMessage({ id: 'welcome', role: 'bot', content: p.greeting || "Hi! Ask me anything!", timestamp: Date.now() });
+        }
+      }
+      if (msg.type === 'persona_changed' && (msg as any).persona) {
+        useBotStore.getState().setBotName((msg as any).persona.name?.toUpperCase() || 'CLAWFORD');
+      }
+
+      if (msg.type === 'bot_message' && waitingForReply.current && msg.content) {
+        useBotStore.getState().addChatMessage({
+          id: `bot-${Date.now()}`,
+          role: 'bot',
+          content: msg.content!,
+          emotion: msg.emotion,
+          tools: msg.tool_calls,
+          timestamp: Date.now(),
+        });
+        setThinking(false);
+        waitingForReply.current = false;
+        lastBotMsg.current = msg.content!;
+      }
+
+      if (msg.type === 'bot_alert' && msg.content) {
+        useBotStore.getState().addChatMessage({
+          id: `alert-${Date.now()}`,
+          role: 'bot',
+          content: `⚠️ ${msg.content}`,
+          emotion: msg.emotion,
+          timestamp: Date.now(),
+        });
+      }
+
+      if (msg.type === 'bot_emotion' && msg.emotion === 'thinking' && waitingForReply.current) {
+        setThinking(true);
+      }
+    });
+  }, []);
+
+  // Auto-speak bot response
+  useEffect(() => {
+    if (lastBotMsg.current && voice.config.enabled && voice.config.autoSpeak) {
+      voice.speak(lastBotMsg.current);
+      lastBotMsg.current = '';
+    }
+  });
+
+  // Sync voice speaking state → VRM mouth animation
+  const setEmotion = useBotStore(s => s.setEmotion);
+  useEffect(() => {
+    if (voice.speaking) setEmotion('talking');
+    else if (!thinking) setEmotion('idle');
+  }, [voice.speaking, thinking, setEmotion]);
+
+  // Auto-scroll
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [messages, thinking]);
+
+  const handleSend = useCallback(() => {
+    const text = input.trim();
+    if (!text || thinking) return;
+    addChatMessage({ id: `user-${Date.now()}`, role: 'user', content: text, timestamp: Date.now() });
+    setInput('');
+    waitingForReply.current = true;
+    onSend(text);
+  }, [input, onSend, thinking, addChatMessage]);
+
+  return (
+    <div style={{
+      position: 'fixed',
+      left: Math.max(10, Math.min(botPos.x - 330, window.innerWidth - 340)),
+      top: Math.max(10, Math.min(botPos.y - 350, window.innerHeight - 420)),
+      zIndex: 999,
+      width: Math.min(320, window.innerWidth - 20), height: 400,
+      display: open ? 'flex' : 'none', flexDirection: 'column',
+      border: '2px solid var(--ink)', background: 'var(--cream)',
+      boxShadow: '6px 6px 0 var(--orange)',
+      animation: 'cardIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)',
+    }}>
+      {/* Header */}
+      <div style={{
+        padding: '8px 12px', borderBottom: '2px solid var(--ink)',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        background: 'var(--paper)',
+      }}>
+        <span className="font-display" style={{ fontSize: 14, letterSpacing: 2 }}>
+          {botName}
+        </span>
+        <div style={{ display: 'flex', gap: 4 }}>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
+            <X size={14} color="var(--mid)" />
+          </button>
+        </div>
+      </div>
+
+      {/* Messages */}
+      <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {messages.map(m => (
+          <div key={m.id} style={{
+            display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start',
+          }}>
+            <div style={{
+              maxWidth: '80%', padding: '8px 12px', fontSize: 12, lineHeight: 1.5,
+              border: `1.5px solid ${m.role === 'user' ? 'var(--ink)' : 'var(--orange)'}`,
+              background: m.role === 'user' ? 'var(--ink)' : 'rgba(212, 82, 26, 0.04)',
+              color: m.role === 'user' ? 'var(--cream)' : 'var(--ink)',
+              wordBreak: 'break-word',
+            }}>
+              {m.content}
+              {m.tools && m.tools.length > 0 && (
+                <div className="font-mono" style={{ fontSize: 9, color: 'var(--dim)', marginTop: 4, borderTop: '1px solid var(--line)', paddingTop: 4 }}>
+                  {m.tools.map((t, i) => (
+                    <span key={i}>{t.success ? '✓' : '✗'} {t.tool}{i < m.tools!.length - 1 ? ' → ' : ''}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+
+        {/* Thinking indicator */}
+        {thinking && (
+          <div style={{ display: 'flex', gap: 5, padding: 8 }}>
+            {[0, 1, 2].map(i => (
+              <div key={i} style={{
+                width: 6, height: 6, background: 'var(--orange)',
+                animation: `dotBounce 1.2s ease-in-out infinite ${i * 0.2}s`,
+              }} />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Voice transcript indicator */}
+      {voice.listening && (
+        <div className="font-mono" style={{
+          padding: '4px 10px', background: 'rgba(212, 82, 26, 0.08)',
+          borderTop: '1px solid var(--line)', fontSize: 11, color: 'var(--orange)',
+          display: 'flex', alignItems: 'center', gap: 6,
+        }}>
+          <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#c0392b', animation: 'pulse 1s infinite' }} />
+          {voice.transcript || 'Listening...'}
+        </div>
+      )}
+
+      {/* Input */}
+      <div style={{
+        padding: '8px 10px', borderTop: '2px solid var(--ink)',
+        display: 'flex', gap: 6,
+      }}>
+        {voice.config.enabled && voice.available && (
+          <button
+            onClick={() => voice.listening ? voice.stopListening() : voice.startListening()}
+            title={voice.listening ? 'Stop listening' : 'Voice input'}
+            style={{
+              width: 32, height: 32, border: 'none', cursor: 'pointer',
+              background: voice.listening ? '#c0392b' : 'var(--ink)',
+              color: 'var(--cream)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              animation: voice.listening ? 'pulse 1s infinite' : 'none',
+              transition: 'all 0.2s',
+            }}
+          >
+            {voice.listening ? <MicOff size={14} /> : <Mic size={14} />}
+          </button>
+        )}
+        <input
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') handleSend(); }}
+          placeholder={voice.listening ? 'Speaking...' : 'Ask bot or give commands...'}
+          disabled={voice.listening}
+          className="font-mono"
+          style={{
+            flex: 1, background: 'none', border: '1.5px solid var(--line)',
+            outline: 'none', padding: '6px 10px', fontSize: 12, color: 'var(--ink)',
+          }}
+          onFocus={e => e.target.style.borderColor = 'var(--orange)'}
+          onBlur={e => e.target.style.borderColor = 'var(--line)'}
+        />
+        {voice.speaking ? (
+          <button onClick={() => voice.stopSpeaking()} title="Stop speaking" style={{
+            width: 32, height: 32, border: 'none', background: '#c0392b',
+            color: 'var(--cream)', cursor: 'pointer', display: 'flex',
+            alignItems: 'center', justifyContent: 'center',
+          }}>
+            <VolumeX size={14} />
+          </button>
+        ) : (
+          <button onClick={handleSend} style={{
+            width: 32, height: 32, border: 'none', background: 'var(--orange)',
+            color: 'var(--cream)', cursor: 'pointer', display: 'flex',
+            alignItems: 'center', justifyContent: 'center',
+          }}>
+            <Send size={14} />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
